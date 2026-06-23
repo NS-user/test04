@@ -297,8 +297,21 @@ canvas {
   body { align-items: flex-start; }
   #game { border-width: 3px; }
   .title { font-size: 28px; }
-  .quiz-question { font-size: 24px; }
-  #quiz-answer { font-size: 26px; }   /* iOSの自動ズーム防止(16px以上) */
+
+  /* ===== バトル画面をスマホ1画面に収める ===== */
+  #battle-canvas { height: 120px; object-fit: cover; object-position: 50% 0; }
+  .battle-status { padding: 5px 8px 0; gap: 6px; }
+  .status-box { padding: 4px 6px; }
+  .status-line { font-size: 13px; }
+  .status-line.small { font-size: 10px; }
+  .message-window { margin: 5px 8px; padding: 6px 10px; min-height: 0; font-size: 13px; }
+  .quiz-area { margin: 0 8px 8px; padding: 7px 10px; }
+  .quiz-question { font-size: 22px; margin-bottom: 6px; }
+  #quiz-answer { height: 42px; font-size: 22px; }   /* 16px以上でiOS自動ズーム防止 */
+  .keypad { gap: 6px; margin-top: 7px; }
+  .key { font-size: 20px; padding: 7px 0; border-width: 2px; }
+  .submit-btn { margin-top: 7px; padding: 8px; font-size: 16px; }
+  .quiz-timer { margin-top: 6px; }
 }
 
 /* ===== ゲームオーバー ===== */
