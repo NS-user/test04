@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - claude/dq-math-rpg-game-56igj0
+      - claude/tower-defense-game-b4nq35
   workflow_dispatch:
 
 # Pages デプロイに必要な権限
