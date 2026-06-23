@@ -1,289 +1,222 @@
-/* ===== 算術勇者クエスト スタイル ===== */
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&display=swap');
-
+/* =========================================================
+   サイバー成金防衛 ～AIファイアウォールＴＤ～  スタイル
+   ネオン×サイバーなダークUI
+   ========================================================= */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-body {
-  background: #000;
-  color: #fff;
-  font-family: 'DotGothic16', monospace;
+:root {
+  --bg: #050810;
+  --panel: #0d1525;
+  --panel2: #111d31;
+  --line: #1d3350;
+  --cyan: #34d3ff;
+  --green: #36f58a;
+  --gold: #ffd54f;
+  --pink: #ff4d8d;
+  --text: #d6e6f5;
+  --muted: #7d93ac;
+}
+
+html, body {
+  height: 100%;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #0a1830 0%, transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  min-height: 100%;
   display: flex;
+  align-items: flex-start;
   justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  -webkit-font-smoothing: none;
-  image-rendering: pixelated;
+  padding: 16px;
 }
 
-#game {
-  width: 480px;
-  max-width: 100vw;
-  background: #0a0a1a;
-  border: 4px solid #fff;
-  box-shadow: 0 0 0 4px #000, 0 0 24px rgba(80,120,255,.4);
-  position: relative;
-  overflow: hidden;
-}
-
-canvas {
-  display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  width: 100%;
-  background: #1a1a3a;
-}
-
-/* ===== 画面切り替え ===== */
-.screen { display: none; }
+.screen { display: none; width: 100%; }
 .screen.active { display: block; }
 
-/* ===== タイトル ===== */
-#title-screen {
+/* ---------- タイトル ---------- */
+#title-screen { max-width: 760px; margin: 4vh auto; }
+.title-box {
+  background: linear-gradient(180deg, var(--panel) 0%, #0a1322 100%);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 36px 30px 30px;
   text-align: center;
-  padding: 28px 16px 24px;
-  background: radial-gradient(circle at 50% 30%, #1b1b4a 0%, #06060f 80%);
+  box-shadow: 0 0 40px rgba(52,211,255,0.08);
 }
 .title {
-  font-size: 34px;
+  font-size: 44px;
   letter-spacing: 2px;
-  color: #ffe14d;
-  text-shadow: 3px 3px 0 #804000, -1px -1px 0 #000;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(52,211,255,0.25);
 }
-.subtitle {
-  font-size: 16px;
-  color: #9fd0ff;
-  margin: 6px 0 16px;
-  text-shadow: 2px 2px 0 #000;
-}
-.title-hero { margin: 8px auto 18px; }
-#title-canvas { width: 96px; height: 96px; background: transparent; margin: 0 auto; }
+.subtitle { color: var(--cyan); margin-top: 4px; letter-spacing: 4px; font-size: 14px; }
+.lead { margin: 22px auto; line-height: 1.9; color: var(--text); font-size: 15px; }
+.lead strong { color: var(--gold); }
 
-/* ===== ボタン（ドラクエ風コマンドウィンドウ） ===== */
-.dq-btn {
-  font-family: inherit;
-  font-size: 16px;
-  color: #fff;
-  background: #1322a8;
-  border: 3px solid #fff;
-  border-radius: 8px;
-  padding: 10px 18px;
-  cursor: pointer;
-  box-shadow: 0 0 0 3px #000;
-  transition: transform .05s, background .1s;
+.big-btn {
+  font-size: 20px; font-weight: 700;
+  color: #042; cursor: pointer;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  border: none; border-radius: 10px;
+  padding: 14px 36px;
+  box-shadow: 0 6px 0 #0a6, 0 10px 24px rgba(52,211,255,0.3);
+  transition: transform .05s, box-shadow .05s;
 }
-.dq-btn:hover { background: #2a44e0; }
-.dq-btn:active { transform: translateY(2px); }
+.big-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #0a6; }
 
-.hint {
-  font-size: 12px;
-  color: #8888aa;
-  margin-top: 14px;
+.howto {
+  list-style: none; text-align: left;
+  max-width: 560px; margin: 26px auto 0;
+  background: #0a1322; border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px 18px;
+  font-size: 13.5px; line-height: 2;
+  color: var(--muted);
 }
+.howto b { color: var(--cyan); }
 
-/* ===== HUD ===== */
+/* ---------- ゲーム画面 ---------- */
+#game-screen { max-width: 1080px; margin: 0 auto; }
+
 .hud {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 6px 10px;
-  font-size: 13px;
-  background: #11112a;
-  border-bottom: 2px solid #fff;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;
 }
-.hud b { color: #ffe14d; }
+.hud-item {
+  font-size: 15px; padding: 4px 10px; border-radius: 8px;
+  background: #0a1322; border: 1px solid var(--line);
+}
+.hud-item b { font-variant-numeric: tabular-nums; }
+.hud-item.money b { color: var(--gold); }
+.hud-item.core b { color: var(--green); }
+.hud-item.wave b { color: var(--cyan); }
+.hud-item.score b { color: var(--pink); }
+.mini-btn {
+  margin-left: auto; cursor: pointer;
+  background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 14px; font-size: 14px;
+}
+.mini-btn:hover { border-color: var(--cyan); }
 
-/* ===== バトル ===== */
-#battle-screen { background: #06060f; }
-.battle-status {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px 0;
-}
-.status-box {
-  flex: 1;
-  background: #11112a;
-  border: 2px solid #fff;
-  border-radius: 6px;
-  padding: 5px 8px;
-}
-.status-line { font-size: 14px; }
-.status-line.small { font-size: 11px; color: #aab; }
-.hp-bar {
-  height: 8px;
-  background: #333;
-  border: 1px solid #000;
-  border-radius: 4px;
-  margin: 3px 0;
-  overflow: hidden;
-}
-.hp-fill {
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(#7CFC00, #2e8b00);
-  transition: width .3s;
-}
-.hp-fill.enemy { background: linear-gradient(#ff7b7b, #c01818); }
+.play-area { display: flex; gap: 14px; align-items: flex-start; }
 
-.message-window {
-  margin: 8px 10px;
-  padding: 10px 12px;
-  background: #000;
-  border: 3px solid #fff;
-  border-radius: 8px;
-  font-size: 15px;
-  min-height: 44px;
+.stage-wrap { position: relative; flex: 0 0 auto; }
+#game-canvas {
+  display: block;
+  width: 720px; max-width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: #070b14;
+  box-shadow: 0 0 30px rgba(52,211,255,0.08);
+  cursor: pointer;
 }
 
-/* ===== クイズ ===== */
-.quiz-area {
-  margin: 0 10px 12px;
-  padding: 10px 12px;
-  background: #11112a;
-  border: 3px solid #ffe14d;
-  border-radius: 8px;
+/* ---------- サイドバー（ショップ） ---------- */
+.sidebar {
+  flex: 1 1 260px; min-width: 240px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px;
+}
+.sidebar h2 { font-size: 15px; color: var(--cyan); margin-bottom: 10px; letter-spacing: 1px; }
+
+.shop { display: flex; flex-direction: column; gap: 8px; }
+.shop-btn {
+  display: flex; align-items: center; gap: 10px;
+  text-align: left; cursor: pointer;
+  background: #0a1322; color: var(--text);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 8px 10px; transition: border-color .1s, background .1s;
+}
+.shop-btn:hover { border-color: var(--cyan); }
+.shop-btn.selected { border-color: var(--gold); background: #14233a; box-shadow: 0 0 12px rgba(255,213,79,0.2); }
+.shop-btn.nomoney { opacity: 0.5; }
+.sb-icon {
+  flex: 0 0 34px; width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: 2px solid; border-radius: 8px;
+  font-weight: 800; font-family: monospace; font-size: 13px;
+}
+.sb-info { display: flex; flex-direction: column; flex: 1; }
+.sb-info b { font-size: 13.5px; }
+.sb-info small { color: var(--muted); font-size: 11px; line-height: 1.3; }
+.sb-cost { color: var(--gold); font-weight: 700; font-size: 13px; white-space: nowrap; }
+
+.wave-btn {
+  width: 100%; margin-top: 14px; cursor: pointer;
+  font-size: 15px; font-weight: 700; color: #042;
+  background: linear-gradient(90deg, var(--gold), #ffb300);
+  border: none; border-radius: 9px; padding: 12px;
+  box-shadow: 0 4px 0 #b07d00;
+  transition: transform .05s, box-shadow .05s;
+}
+.wave-btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 #b07d00; }
+.wave-btn:disabled { background: #2a3850; color: var(--muted); box-shadow: none; cursor: default; }
+
+.tip { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+
+/* ---------- 選択タワー操作パネル ---------- */
+.tower-panel {
+  position: absolute; left: 10px; bottom: 10px;
   display: none;
+  background: rgba(10,19,34,0.95);
+  border: 1px solid var(--gold); border-radius: 10px;
+  padding: 10px 12px; min-width: 230px;
+  box-shadow: 0 0 18px rgba(255,213,79,0.18);
+  backdrop-filter: blur(2px);
 }
-.quiz-area.active { display: block; }
-.quiz-question {
-  font-size: 26px;
-  text-align: center;
-  color: #ffe14d;
-  margin-bottom: 10px;
-  text-shadow: 2px 2px 0 #000;
+.tower-panel.show { display: block; }
+.tp-head { font-weight: 700; color: var(--gold); font-size: 14px; }
+.tp-stats { font-size: 12px; color: var(--text); margin: 6px 0 10px; line-height: 1.5; }
+.tp-stats b { color: var(--cyan); }
+.tp-btns { display: flex; gap: 8px; }
+.tp-btn {
+  flex: 1; cursor: pointer; font-size: 13px; font-weight: 700;
+  border: none; border-radius: 7px; padding: 8px;
 }
-#quiz-answer {
-  display: block;
-  width: 100%;
-  height: 52px;
-  box-sizing: border-box;
-  font-family: inherit;
-  font-size: 24px;
-  text-align: center;
-  padding: 8px;
-  border: 3px solid #fff;
-  border-radius: 6px;
-  background: #fff;
-  color: #000;
-}
-/* こうげき！ボタン（数字パッドの下・横いっぱい） */
-.submit-btn {
-  display: block;
-  width: 100%;
-  margin-top: 10px;
-  font-size: 18px;
-}
-.quiz-timer {
-  margin-top: 8px;
-  height: 6px;
-  background: #333;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.quiz-timer::after {
-  content: '';
-  display: block;
-  height: 100%;
-  width: var(--t, 100%);
-  background: #4da6ff;
-}
+.tp-btn.up { background: var(--green); color: #042; }
+.tp-btn.up:disabled { background: #2a3850; color: var(--muted); cursor: default; }
+.tp-btn.sell { background: #3a2a2a; color: #ffb0b0; border: 1px solid #5a3a3a; }
 
-/* ===== スマホ用 数字パッド ===== */
-.keypad {
-  display: none;              /* タッチ端末でのみ表示 */
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 10px;
+/* ---------- 結果オーバーレイ ---------- */
+.overlay {
+  position: fixed; inset: 0; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(4,7,14,0.86); z-index: 50;
 }
-.key {
-  font-family: inherit;
-  font-size: 24px;
-  color: #fff;
-  background: #1322a8;
-  border: 3px solid #fff;
-  border-radius: 8px;
-  padding: 12px 0;
-  cursor: pointer;
-  box-shadow: 0 0 0 2px #000;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+.overlay.show { display: flex; }
+.overlay-box {
+  background: var(--panel); border: 1px solid var(--cyan);
+  border-radius: 16px; padding: 34px 40px; text-align: center;
+  box-shadow: 0 0 50px rgba(52,211,255,0.25);
+  max-width: 90vw;
 }
-.key:active { background: #2a44e0; transform: scale(.95); }
-.key[data-k="clear"] { background: #8a4a1a; }
-.key[data-k="del"]   { background: #6a2a6a; }
+.overlay-box h2 { font-size: 28px; margin-bottom: 8px; }
+.overlay-box p { color: var(--muted); margin-bottom: 16px; }
+.ov-stats {
+  background: #0a1322; border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px; margin-bottom: 22px;
+  line-height: 2; font-size: 15px;
+}
+.ov-stats b { color: var(--gold); }
 
-/* タッチ端末では数字パッドを表示 */
-@media (hover: none) and (pointer: coarse) {
-  .keypad { display: grid; }
+/* ---------- レスポンシブ ---------- */
+@media (max-width: 1000px) {
+  .play-area { flex-direction: column; align-items: stretch; }
+  .stage-wrap { width: 100%; }
+  #game-canvas { width: 100%; }
+  .sidebar { width: 100%; }
+  .shop { display: grid; grid-template-columns: 1fr 1fr; }
+  .wave-btn { grid-column: 1 / -1; }
 }
-
-/* ===== スマホ用 十字キー ===== */
-.dpad {
-  display: none;               /* タッチ端末でのみ表示 */
-  position: relative;
-  width: 168px;
-  height: 168px;
-  margin: 6px auto 14px;
+@media (max-width: 560px) {
+  .title { font-size: 32px; }
+  .shop { grid-template-columns: 1fr; }
+  .tower-panel { left: 6px; right: 6px; bottom: 6px; min-width: 0; }
 }
-.dbtn {
-  position: absolute;
-  width: 56px;
-  height: 56px;
-  font-size: 22px;
-  color: #fff;
-  background: #1322a8;
-  border: 3px solid #fff;
-  border-radius: 10px;
-  box-shadow: 0 0 0 3px #000;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-.dbtn:active { background: #2a44e0; transform: scale(.94); }
-.dbtn.up    { top: 0;    left: 56px; }
-.dbtn.left  { top: 56px; left: 0; }
-.dbtn.down  { top: 112px;left: 56px; }
-.dbtn.right { top: 56px; left: 112px; }
-
-/* タッチ端末では十字キーを表示 */
-@media (hover: none) and (pointer: coarse) {
-  .dpad { display: block; }
-}
-
-/* 画面が狭いとき全体をフィット */
-@media (max-width: 500px) {
-  body { align-items: flex-start; }
-  #game { border-width: 3px; }
-  .title { font-size: 28px; }
-  .quiz-question { font-size: 24px; }
-  #quiz-answer { font-size: 26px; }   /* iOSの自動ズーム防止(16px以上) */
-}
-
-/* ===== ゲームオーバー ===== */
-#gameover-screen {
-  text-align: center;
-  padding: 60px 16px;
-  background: #000;
-}
-.gameover-title { font-size: 30px; color: #ff5555; margin-bottom: 14px; }
-#gameover-text { font-size: 15px; margin-bottom: 24px; color: #ccc; }
-
-/* ダメージ点滅 */
-@keyframes shake {
-  0%,100% { transform: translateX(0); }
-  25% { transform: translateX(-6px); }
-  75% { transform: translateX(6px); }
-}
-.shake { animation: shake .25s; }
-@keyframes flash-bg {
-  0%,100% { background:#06060f; }
-  50% { background:#5a0000; }
-}
-.flash { animation: flash-bg .25s; }

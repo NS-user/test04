@@ -3,87 +3,77 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>算術勇者クエスト ～AIの冒険～</title>
+<title>サイバー成金防衛 ～AIファイアウォールＴＤ～</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="game">
-    <!-- タイトル画面 -->
-    <div id="title-screen" class="screen active">
-      <h1 class="title">算術勇者クエスト</h1>
-      <p class="subtitle">～ AI の 冒険 ～</p>
-      <div class="title-hero">
-        <canvas id="title-canvas" width="64" height="64"></canvas>
-      </div>
-      <button id="start-btn" class="dq-btn">▶ ぼうけんをはじめる</button>
-      <p class="hint">移動: 方向キー / WASD ・ 決定: Enter</p>
-    </div>
+<div id="app">
 
-    <!-- フィールド画面 -->
-    <div id="field-screen" class="screen">
-      <div class="hud">
-        <span id="hud-name">AI</span>
-        <span>Lv <b id="hud-lv">1</b></span>
-        <span>HP <b id="hud-hp">20</b>/<b id="hud-maxhp">20</b></span>
-        <span>EXP <b id="hud-exp">0</b></span>
-      </div>
-      <canvas id="field-canvas" width="480" height="320"></canvas>
-      <p class="hint">草むらを歩くとモンスターが現れる！</p>
-      <!-- スマホ用 十字キー -->
-      <div id="dpad" class="dpad">
-        <button class="dbtn up"    data-dir="up"    aria-label="上">▲</button>
-        <button class="dbtn left"  data-dir="left"  aria-label="左">◀</button>
-        <button class="dbtn down"  data-dir="down"  aria-label="下">▼</button>
-        <button class="dbtn right" data-dir="right" aria-label="右">▶</button>
-      </div>
-    </div>
-
-    <!-- バトル画面 -->
-    <div id="battle-screen" class="screen">
-      <canvas id="battle-canvas" width="480" height="200"></canvas>
-      <div class="battle-status">
-        <div class="status-box">
-          <div class="status-line"><span id="b-enemy-name">スライム</span></div>
-          <div class="hp-bar"><div id="enemy-hp-fill" class="hp-fill enemy"></div></div>
-        </div>
-        <div class="status-box">
-          <div class="status-line">AI　Lv<span id="b-lv">1</span></div>
-          <div class="hp-bar"><div id="hero-hp-fill" class="hp-fill"></div></div>
-          <div class="status-line small">HP <span id="b-hp">20</span>/<span id="b-maxhp">20</span></div>
-        </div>
-      </div>
-      <div id="battle-message" class="message-window">モンスターが あらわれた！</div>
-      <div id="quiz-area" class="quiz-area">
-        <div id="quiz-question" class="quiz-question">2 + 3 = ?</div>
-        <input id="quiz-answer" type="text" inputmode="numeric" autocomplete="off" placeholder="こたえ">
-        <!-- スマホ用 数字パッド -->
-        <div id="keypad" class="keypad">
-          <button class="key" data-k="1">1</button>
-          <button class="key" data-k="2">2</button>
-          <button class="key" data-k="3">3</button>
-          <button class="key" data-k="4">4</button>
-          <button class="key" data-k="5">5</button>
-          <button class="key" data-k="6">6</button>
-          <button class="key" data-k="7">7</button>
-          <button class="key" data-k="8">8</button>
-          <button class="key" data-k="9">9</button>
-          <button class="key" data-k="clear">C</button>
-          <button class="key" data-k="0">0</button>
-          <button class="key" data-k="del">⌫</button>
-        </div>
-        <button id="quiz-submit" class="dq-btn submit-btn">こうげき！</button>
-        <div id="quiz-timer" class="quiz-timer"></div>
-      </div>
-    </div>
-
-    <!-- ゲームオーバー -->
-    <div id="gameover-screen" class="screen">
-      <h2 class="gameover-title">ゲームオーバー</h2>
-      <p id="gameover-text">AIは ちからつきた…</p>
-      <button id="retry-btn" class="dq-btn">▶ もういちど</button>
+  <!-- タイトル -->
+  <div id="title-screen" class="screen active">
+    <div class="title-box">
+      <h1 class="title">サイバー成金防衛</h1>
+      <p class="subtitle">～ AI ファイアウォール T D ～</p>
+      <p class="lead">
+        押し寄せる<strong>サイバー攻撃</strong>から <strong>コア(サーバー)</strong> を守れ！<br>
+        防衛AIになって防壁を築き、<strong>倒して稼いで強化</strong>＝成金で<br>
+        全ウェーブを撃退するタワーディフェンス。
+      </p>
+      <button id="start-btn" class="big-btn">▶ 防衛を はじめる</button>
+      <ul class="howto">
+        <li>① 下の<b>防衛プログラム</b>を選んで、盤面の空きマスをクリックで設置</li>
+        <li>② 「<b>防衛開始 / 次のWAVE</b>」で敵が出現。倒すと<b>💰資金</b>獲得</li>
+        <li>③ 設置済みをクリック → <b>強化 / 売却</b>。早めにWAVE開始でボーナス💰</li>
+        <li>④ コアHPが0になる前に全15ウェーブを耐え抜け！</li>
+      </ul>
     </div>
   </div>
 
-  <script src="game.js"></script>
+  <!-- ゲーム -->
+  <div id="game-screen" class="screen">
+    <div class="hud">
+      <span class="hud-item money">💰 <b id="hud-money">0</b></span>
+      <span class="hud-item core">🛡 コア <b id="hud-core">20</b></span>
+      <span class="hud-item wave">🌊 WAVE <b id="hud-wave">0 / 15</b></span>
+      <span class="hud-item score">⭐ <b id="hud-score">0</b></span>
+      <button id="speed-btn" class="mini-btn">▶ 等速</button>
+    </div>
+
+    <div class="play-area">
+      <div class="stage-wrap">
+        <canvas id="game-canvas" width="720" height="540"></canvas>
+
+        <!-- 選択タワー操作パネル -->
+        <div id="tower-panel" class="tower-panel">
+          <div class="tp-head" id="tp-name">タワー</div>
+          <div class="tp-stats" id="tp-stats"></div>
+          <div class="tp-btns">
+            <button id="tp-upgrade" class="tp-btn up">⬆ 強化</button>
+            <button id="tp-sell" class="tp-btn sell">売却</button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sidebar">
+        <h2>防衛プログラム</h2>
+        <div id="shop" class="shop"></div>
+        <button id="wave-btn" class="wave-btn">▶ 防衛開始 (WAVE 1)</button>
+        <p class="tip">空きマスをクリックで設置 / 設置済みをクリックで強化・売却<br>（右クリックで選択解除）</p>
+      </aside>
+    </div>
+  </div>
+
+  <!-- 結果オーバーレイ -->
+  <div id="overlay" class="overlay">
+    <div class="overlay-box">
+      <h2 id="ov-title">結果</h2>
+      <p id="ov-sub"></p>
+      <div id="ov-stats" class="ov-stats"></div>
+      <button id="retry-btn" class="big-btn">▶ もう一度</button>
+    </div>
+  </div>
+
+</div>
+<script src="game.js"></script>
 </body>
 </html>

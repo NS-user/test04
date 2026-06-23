@@ -1,536 +1,803 @@
 /* =========================================================
-   算術勇者クエスト ～AIの冒険～
-   ドラクエ風 数学RPG  (Vanilla JS + Canvas)
+   サイバー成金防衛 ～AIファイアウォールＴＤ～
+   「成金大防衛」リスペクトのタワーディフェンス。
+   AIが防衛プログラム(タワー)を配置し、サイバー攻撃から
+   コア(サーバー)を守る。倒して稼いで強化＝成金！
+   外部画像なし・すべてCanvas描画・ビルド不要。
    ========================================================= */
+"use strict";
 
-'use strict';
+/* ---------- 盤面定数 ---------- */
+const TILE = 60;
+const COLS = 12;
+const ROWS = 9;
+const W = COLS * TILE; // 720
+const H = ROWS * TILE; // 540
 
-/* ---------- ドット絵スプライト描画 ----------
-   '.' = 透明。それ以外の文字をパレットの色で塗る。 */
-function drawSprite(ctx, sprite, palette, x, y, scale) {
-  for (let row = 0; row < sprite.length; row++) {
-    const line = sprite[row];
-    for (let col = 0; col < line.length; col++) {
-      const ch = line[col];
-      if (ch === '.' || ch === ' ') continue;
-      ctx.fillStyle = palette[ch] || '#f0f';
-      ctx.fillRect(x + col * scale, y + row * scale, scale, scale);
-    }
+/* 進軍ルート（グリッドセル座標）。左外から入り、蛇行してコアへ */
+const PATH_CELLS = [
+  [0, 1], [10, 1], [10, 3], [1, 3], [1, 5], [10, 5], [10, 7], [1, 7],
+];
+const waypoints = PATH_CELLS.map(([c, r]) => ({
+  x: c * TILE + TILE / 2,
+  y: r * TILE + TILE / 2,
+}));
+/* 入口は左外側から */
+const ENTRY = { x: -TILE / 2, y: 1 * TILE + TILE / 2 };
+const corePos = waypoints[waypoints.length - 1];
+
+/* ルートが通るセル（ここにはタワーを置けない） */
+const pathCells = new Set();
+const ckey = (c, r) => c + "," + r;
+for (let i = 0; i < PATH_CELLS.length - 1; i++) {
+  let [c1, r1] = PATH_CELLS[i];
+  const [c2, r2] = PATH_CELLS[i + 1];
+  const dc = Math.sign(c2 - c1);
+  const dr = Math.sign(r2 - r1);
+  pathCells.add(ckey(c1, r1));
+  while (c1 !== c2 || r1 !== r2) {
+    c1 += dc; r1 += dr;
+    pathCells.add(ckey(c1, r1));
   }
 }
 
-/* ---------- スプライト定義（16x16ドット） ---------- */
+/* ---------- タワー定義 ---------- */
+/* dmg/range/cooldown はレベル1。強化で倍率がかかる */
+const TOWER_TYPES = {
+  firewall: {
+    name: "ファイアウォール", short: "FW", color: "#34d3ff",
+    cost: 50, range: 115, dmg: 14, cd: 0.55, splash: 0, slow: 0,
+    desc: "標準型。バランス良く安い基本防壁。",
+  },
+  antivirus: {
+    name: "アンチウイルス", short: "AV", color: "#36f58a",
+    cost: 70, range: 95, dmg: 6, cd: 0.16, splash: 0, slow: 0,
+    desc: "連射型。手数で削る対小型ウイルス。",
+  },
+  ids: {
+    name: "暗号砲ＩＤＳ", short: "ID", color: "#ff9d3a",
+    cost: 120, range: 135, dmg: 48, cd: 1.25, splash: 48, slow: 0,
+    desc: "重砲型。高威力＆範囲ダメージ。",
+  },
+  honeypot: {
+    name: "ハニーポット", short: "HP", color: "#c77dff",
+    cost: 90, range: 105, dmg: 3, cd: 0.7, splash: 0, slow: 0.5,
+    desc: "減速型。敵を罠にハメて足止め。",
+  },
+  sentinel: {
+    name: "ＡＩセンチネル", short: "AI", color: "#ff4d8d",
+    cost: 200, range: 155, dmg: 34, cd: 0.42, splash: 0, slow: 0,
+    desc: "最新鋭AI。高火力・高速・長射程。",
+  },
+};
+const BUILD_ORDER = ["firewall", "antivirus", "ids", "honeypot", "sentinel"];
 
-// 主人公：AIロボット（青ボディ・光る目・アンテナ）
-const SPR_AI = [
-  '......AA......',
-  '......BB......',
-  '...CCCCCCC....',
-  '..CWWWWWWWC...',
-  '..CWEEWEEWC...',  // 目
-  '..CWWWWWWWC...',
-  '..CWMMMMMWC...',  // 口（回路）
-  '...CCCCCCC....',
-  '..GBBBBBBBG...',  // 胴体
-  '.G.BBHHBB.G...',  // 胸の発光
-  '.G.BBBBBB.G...',
-  '...BB..BB.....',
-  '...BB..BB.....',
-  '..KK....KK....',
-];
-const PAL_AI = {
-  A: '#ff4d4d', // アンテナ先端
-  B: '#3a6df0', // ボディ青
-  C: '#9fd0ff', // フレーム
-  W: '#e8f4ff', // 顔パネル
-  E: '#00e5ff', // 目（発光）
-  M: '#2ec27e', // 口の回路
-  G: '#1b3a9e', // 肩
-  H: '#ffe14d', // 胸コア
-  K: '#888',    // 足
+/* 強化レベルごとの倍率（index = level-1）。最大Lv3 */
+const UP_DMG = [1, 1.7, 2.7];
+const UP_RANGE = [1, 1.15, 1.32];
+const UP_CD = [1, 0.82, 0.66]; // 小さいほど速い
+const MAX_LEVEL = 3;
+
+/* ---------- 敵(脅威)定義 ---------- */
+const ENEMY_TYPES = {
+  virus: { name: "ウイルス", hp: 34, speed: 62, reward: 7, leak: 1, color: "#7CFC00", r: 11 },
+  worm: { name: "ワーム", hp: 24, speed: 118, reward: 9, leak: 1, color: "#00e5ff", r: 9 },
+  trojan: { name: "トロイの木馬", hp: 150, speed: 42, reward: 22, leak: 3, color: "#ff7043", r: 15 },
+  bot: { name: "ボットネット", hp: 16, speed: 78, reward: 5, leak: 1, color: "#ffd54f", r: 8 },
+  ransom: { name: "ランサムウェア", hp: 1100, speed: 34, reward: 250, leak: 12, color: "#ff1744", r: 22 },
 };
 
-// スライム
-const SPR_SLIME = [
-  '..............',
-  '.....SSSS.....',
-  '....SSSSSS....',
-  '...SSSSSSSS...',
-  '..SSSSSSSSSS..',
-  '.SSWSSSSWSSS..',  // 目
-  '.SSWSSSSWSSS..',
-  '.SSSSSSSSSSS..',
-  '.SSSMMMMSSSS..',  // 口
-  'SSSSSSSSSSSSSS',
-  'SSSSSSSSSSSSSS',
-  '.SS.SS.SS.SS..',
-];
-const PAL_SLIME = { S: '#36c5f0', W: '#ffffff', M: '#0a3a55' };
-
-// こうもり
-const SPR_BAT = [
-  '..............',
-  'W...........W.',
-  'WW.........WW.',
-  'WWWW.PPP.WWWW.',
-  '.WWWPPPPPWWW..',
-  '..WWPEPEPWW...',  // 目
-  '...WPPPPPW....',
-  '....PPMPP.....',  // 牙
-  '.....PPP......',
-];
-const PAL_BAT = { W: '#5a3a8a', P: '#7b4dc0', E: '#ff3b3b', M: '#fff' };
-
-// ゴーレム（岩）
-const SPR_GOLEM = [
-  '..GGGGGGGG....',
-  '.GRRRRRRRRG...',
-  '.GRREREERRG...',  // 目
-  '.GRRRRRRRRG...',
-  '.GRRMMMMRRG...',  // 口
-  'GGRRRRRRRRGG..',
-  'GRRRRRRRRRRG..',
-  'GRRGRRRRGRRG..',
-  'GRRRRRRRRRRG..',
-  '.GRRG..GRRG...',
-  '.GGGG..GGGG...',
-];
-const PAL_GOLEM = { G: '#5a4a30', R: '#8a7350', E: '#ffcf3b', M: '#2a1f10' };
-
-// ドラゴン（ボス）
-const SPR_DRAGON = [
-  '.D........D...',
-  '.DD......DD...',
-  '.DDD.NN.DDD...',
-  '..DDDNNNDD....',
-  '...DNEPENNN...',  // 目
-  '...DNNNNNND...',
-  '..DDNNFFNNDD..',  // 牙
-  '.DD.NNNNNN.DD.',
-  'D...NNNNNN...D',
-  '....NN..NN....',
-  '...NN....NN...',
-];
-const PAL_DRAGON = { D: '#1f7a3a', N: '#2ec27e', E: '#ffe14d', P: '#000', F: '#fff' };
-
-const ENEMIES = [
-  { name: 'スライム',   spr: SPR_SLIME,  pal: PAL_SLIME,  hp: 1, exp: 3,  tier: 0 },
-  { name: 'こうもり',   spr: SPR_BAT,    pal: PAL_BAT,    hp: 1, exp: 5,  tier: 1 },
-  { name: 'ゴーレム',   spr: SPR_GOLEM,  pal: PAL_GOLEM,  hp: 2, exp: 9,  tier: 2 },
-  { name: 'ドラゴン',   spr: SPR_DRAGON, pal: PAL_DRAGON, hp: 3, exp: 18, tier: 3 },
-];
+/* ---------- ウェーブ定義 ---------- */
+/* 各ウェーブ: 出現グループの配列 {type,count,gap,delay} */
+function buildWaves() {
+  const w = [];
+  // 1-3: 入門
+  w.push([{ type: "virus", count: 8, gap: 0.9, delay: 0 }]);
+  w.push([{ type: "virus", count: 10, gap: 0.7, delay: 0 }, { type: "worm", count: 3, gap: 0.6, delay: 5 }]);
+  w.push([{ type: "worm", count: 8, gap: 0.5, delay: 0 }, { type: "virus", count: 8, gap: 0.6, delay: 2 }]);
+  // 4: 最初のトロイ
+  w.push([{ type: "trojan", count: 2, gap: 1.5, delay: 0 }, { type: "virus", count: 12, gap: 0.5, delay: 1 }]);
+  // 5: ボット群
+  w.push([{ type: "bot", count: 25, gap: 0.25, delay: 0 }]);
+  w.push([{ type: "worm", count: 14, gap: 0.4, delay: 0 }, { type: "trojan", count: 3, gap: 1.2, delay: 3 }]);
+  w.push([{ type: "virus", count: 18, gap: 0.45, delay: 0 }, { type: "bot", count: 20, gap: 0.2, delay: 4 }]);
+  // 8: ミニボス級トロイ多数
+  w.push([{ type: "trojan", count: 6, gap: 0.9, delay: 0 }, { type: "worm", count: 16, gap: 0.35, delay: 2 }]);
+  w.push([{ type: "bot", count: 35, gap: 0.18, delay: 0 }, { type: "trojan", count: 4, gap: 1.0, delay: 1 }]);
+  w.push([{ type: "worm", count: 24, gap: 0.3, delay: 0 }, { type: "virus", count: 20, gap: 0.35, delay: 1 }]);
+  // 11-12: 混成 強敵
+  w.push([{ type: "trojan", count: 10, gap: 0.7, delay: 0 }, { type: "bot", count: 30, gap: 0.18, delay: 2 }]);
+  w.push([{ type: "worm", count: 30, gap: 0.25, delay: 0 }, { type: "trojan", count: 8, gap: 0.8, delay: 3 }]);
+  // 13-14: ランサム前哨
+  w.push([{ type: "ransom", count: 1, gap: 1, delay: 0 }, { type: "trojan", count: 6, gap: 0.8, delay: 1 }]);
+  w.push([{ type: "bot", count: 45, gap: 0.14, delay: 0 }, { type: "worm", count: 25, gap: 0.25, delay: 2 }]);
+  // 15: 最終決戦
+  w.push([
+    { type: "ransom", count: 3, gap: 6, delay: 0 },
+    { type: "trojan", count: 14, gap: 0.6, delay: 3 },
+    { type: "worm", count: 30, gap: 0.25, delay: 5 },
+  ]);
+  return w;
+}
+const WAVES = buildWaves();
 
 /* ---------- ゲーム状態 ---------- */
-const hero = {
-  lv: 1, hp: 20, maxhp: 20, exp: 0, next: 10,
-  x: 5, y: 4, // フィールド上のタイル座標
+const state = {
+  money: 0,
+  coreHP: 0,
+  coreMaxHP: 20,
+  wave: 0,            // 現在ウェーブ番号(1始まり)。0=未開始
+  inWave: false,      // 出現処理中か
+  towers: [],
+  enemies: [],
+  beams: [],
+  particles: [],
+  spawnQueue: [],     // {type, time}
+  spawnTimer: 0,
+  selectedBuild: null,
+  selectedTower: null,
+  speed: 1,
+  score: 0,
+  killed: 0,
+  over: false,
+  won: false,
+  running: false,
 };
-
-let currentEnemy = null;
-let enemyHpLeft = 0;
-let currentQuiz = null;
-let quizTimer = null;
-let timeLeft = 0;
-let stepsSinceBattle = 0;
 
 /* ---------- DOM ---------- */
-const $ = id => document.getElementById(id);
-const screens = {
-  title: $('title-screen'),
-  field: $('field-screen'),
-  battle: $('battle-screen'),
-  gameover: $('gameover-screen'),
-};
-function showScreen(name) {
-  Object.values(screens).forEach(s => s.classList.remove('active'));
-  screens[name].classList.add('active');
+const $ = (id) => document.getElementById(id);
+const canvas = $("game-canvas");
+const ctx = canvas.getContext("2d");
+
+/* ============================================================
+   ゲーム開始 / リセット
+   ============================================================ */
+function startGame() {
+  state.money = 200;
+  state.coreHP = state.coreMaxHP;
+  state.wave = 0;
+  state.inWave = false;
+  state.towers = [];
+  state.enemies = [];
+  state.beams = [];
+  state.particles = [];
+  state.spawnQueue = [];
+  state.spawnTimer = 0;
+  state.selectedBuild = null;
+  state.selectedTower = null;
+  state.speed = 1;
+  state.score = 0;
+  state.killed = 0;
+  state.over = false;
+  state.won = false;
+  state.running = true;
+  $("speed-btn").textContent = "▶ 等速";
+  showScreen("game");
+  showTowerPanel();
+  syncShopButtons();
+  updateHUD();
+  refreshWaveButton();
 }
 
-/* ---------- フィールドマップ ----------
-   0=草地, 1=濃い草(エンカウント), 2=木, 3=水, 4=道, 5=城 */
-const MAP = [
-  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
-  [2,0,0,4,4,4,4,4,1,1,0,0,3,3,2],
-  [2,0,2,4,0,0,0,4,1,1,1,0,3,3,2],
-  [2,1,1,4,0,5,0,4,4,1,1,0,0,0,2],
-  [2,1,1,4,4,4,4,4,1,1,1,0,2,0,2],
-  [2,0,0,0,0,1,1,1,1,1,0,0,2,2,2],
-  [2,3,3,0,0,1,1,1,1,0,0,4,4,4,2],
-  [2,3,3,0,0,0,1,1,0,0,0,4,0,0,2],
-  [2,0,0,0,2,0,0,0,0,2,0,4,0,0,2],
-  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
-];
-const TILE = 32;
-const TILE_COLORS = {
-  0: ['#3a8a3a', '#2e7a2e'], // 草地
-  1: ['#2a6a2a', '#1f561f'], // 濃い草
-  3: ['#2a5ad0', '#1f47b0'], // 水
-  4: ['#c2a86a', '#b09858'], // 道
-};
+/* ============================================================
+   ウェーブ制御
+   ============================================================ */
+function startNextWave() {
+  if (state.over || state.won) return;
+  if (state.inWave) return;
+  if (state.wave >= WAVES.length) return;
 
-const fieldCv = $('field-canvas');
-const fctx = fieldCv.getContext('2d');
-fctx.imageSmoothingEnabled = false;
+  // 早期開始ボーナス（2ウェーブ目以降）
+  if (state.wave > 0) {
+    const bonus = 20 + state.wave * 4;
+    state.money += bonus;
+    floatText(corePos.x, corePos.y - 30, "+" + bonus + " 早期ボーナス", "#ffd54f");
+  }
 
-function drawField() {
-  for (let r = 0; r < MAP.length; r++) {
-    for (let c = 0; c < MAP[r].length; c++) {
-      const t = MAP[r][c];
-      const px = c * TILE, py = r * TILE;
-      // 下地
-      const base = TILE_COLORS[t] || TILE_COLORS[0];
-      // 市松模様で立体感
-      fctx.fillStyle = ((r + c) % 2 === 0) ? base[0] : base[1];
-      fctx.fillRect(px, py, TILE, TILE);
+  state.wave++;
+  const groups = WAVES[state.wave - 1];
+  const queue = [];
+  for (const g of groups) {
+    for (let i = 0; i < g.count; i++) {
+      queue.push({ type: g.type, time: g.delay + i * g.gap });
+    }
+  }
+  queue.sort((a, b) => a.time - b.time);
+  state.spawnQueue = queue;
+  state.spawnTimer = 0;
+  state.inWave = true;
+  refreshWaveButton();
+  updateHUD();
+}
 
-      if (t === 1) { // 濃い草：草の房
-        fctx.fillStyle = '#1a4a1a';
-        for (let i = 0; i < 4; i++) {
-          fctx.fillRect(px + 4 + i * 7, py + 18 + (i % 2) * 4, 3, 8);
-        }
-      } else if (t === 2) { // 木
-        fctx.fillStyle = '#5a3a1a'; fctx.fillRect(px + 13, py + 18, 6, 12);
-        fctx.fillStyle = '#1f6a1f'; fctx.fillRect(px + 6, py + 4, 20, 18);
-        fctx.fillStyle = '#2e8a2e'; fctx.fillRect(px + 9, py + 6, 14, 12);
-      } else if (t === 3) { // 水のさざ波
-        fctx.fillStyle = 'rgba(255,255,255,.25)';
-        fctx.fillRect(px + 5, py + 10, 8, 2);
-        fctx.fillRect(px + 18, py + 20, 8, 2);
-      } else if (t === 5) { // 城
-        fctx.fillStyle = '#9aa0b0'; fctx.fillRect(px + 4, py + 8, 24, 22);
-        fctx.fillStyle = '#7a8090'; fctx.fillRect(px + 4, py + 4, 6, 6);
-        fctx.fillRect(px + 14, py + 2, 4, 6); fctx.fillRect(px + 22, py + 4, 6, 6);
-        fctx.fillStyle = '#3a2a4a'; fctx.fillRect(px + 13, py + 18, 6, 12);
+function refreshWaveButton() {
+  const btn = $("wave-btn");
+  if (state.won) { btn.textContent = "🏆 完全防衛！"; btn.disabled = true; return; }
+  if (state.over) { btn.textContent = "💥 防衛失敗"; btn.disabled = true; return; }
+  if (state.wave >= WAVES.length && !state.inWave) {
+    btn.textContent = "最終ウェーブ完遂"; btn.disabled = true; return;
+  }
+  btn.disabled = state.inWave;
+  if (state.inWave) {
+    btn.textContent = "WAVE " + state.wave + " 進行中…";
+  } else if (state.wave === 0) {
+    btn.textContent = "▶ 防衛開始 (WAVE 1)";
+  } else {
+    const bonus = 20 + state.wave * 4;
+    btn.textContent = "▶ 次のWAVE " + (state.wave + 1) + " (+" + bonus + "💰)";
+  }
+}
+
+/* ============================================================
+   敵の出現
+   ============================================================ */
+function spawnEnemy(typeKey) {
+  const t = ENEMY_TYPES[typeKey];
+  // ウェーブが進むほど体力UP（後半の使い回しタイプ対策）
+  const scale = 1 + (state.wave - 1) * 0.06;
+  state.enemies.push({
+    type: typeKey,
+    name: t.name,
+    color: t.color,
+    r: t.r,
+    maxhp: t.hp * scale,
+    hp: t.hp * scale,
+    speed: t.speed,
+    reward: t.reward,
+    leak: t.leak,
+    x: ENTRY.x, y: ENTRY.y,
+    seg: 0,
+    traveled: 0,
+    slowUntil: 0,
+    hitFlash: 0,
+  });
+}
+
+/* ============================================================
+   メイン更新
+   ============================================================ */
+let lastTime = 0;
+function loop(ts) {
+  if (!state.running) return;
+  let dt = (ts - lastTime) / 1000;
+  lastTime = ts;
+  if (dt > 0.05) dt = 0.05; // タブ復帰時の暴走防止
+  dt *= state.speed;
+
+  if (!state.over && !state.won) update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  const now = performance.now() / 1000;
+
+  /* --- 敵出現 --- */
+  if (state.inWave) {
+    state.spawnTimer += dt;
+    while (state.spawnQueue.length && state.spawnQueue[0].time <= state.spawnTimer) {
+      spawnEnemy(state.spawnQueue.shift().type);
+    }
+    if (state.spawnQueue.length === 0 && state.enemies.length === 0) {
+      // ウェーブクリア
+      state.inWave = false;
+      if (state.wave >= WAVES.length) {
+        state.won = true;
+        finishGame();
+      }
+      refreshWaveButton();
+    }
+  }
+
+  /* --- 敵移動 --- */
+  for (const e of state.enemies) {
+    const mul = e.slowUntil > now ? 0.45 : 1;
+    let move = e.speed * mul * dt;
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+    while (move > 0 && e.seg < waypoints.length) {
+      const target = waypoints[e.seg];
+      const dx = target.x - e.x, dy = target.y - e.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= move) {
+        e.x = target.x; e.y = target.y; move -= d; e.traveled += d; e.seg++;
+      } else {
+        e.x += (dx / d) * move; e.y += (dy / d) * move;
+        e.traveled += move; move = 0;
+      }
+    }
+    if (e.seg >= waypoints.length) e.reached = true;
+  }
+
+  /* --- コアに到達した敵を処理 --- */
+  for (const e of state.enemies) {
+    if (e.reached) {
+      state.coreHP -= e.leak;
+      burst(corePos.x, corePos.y, "#ff1744", 16);
+      if (state.coreHP <= 0) {
+        state.coreHP = 0;
+        state.over = true;
+        finishGame();
       }
     }
   }
-  // 主人公
-  drawSprite(fctx, SPR_AI, PAL_AI, hero.x * TILE + 5, hero.y * TILE + 2, 2);
-}
+  state.enemies = state.enemies.filter((e) => !e.reached && e.hp > 0);
 
-function isWalkable(c, r) {
-  if (r < 0 || r >= MAP.length || c < 0 || c >= MAP[0].length) return false;
-  const t = MAP[r][c];
-  return t !== 2 && t !== 3; // 木と水は通れない
-}
+  /* --- タワー攻撃 --- */
+  for (const tw of state.towers) {
+    tw.cool -= dt;
+    const cfg = TOWER_TYPES[tw.type];
+    const range = cfg.range * UP_RANGE[tw.level - 1];
+    const cd = cfg.cd * UP_CD[tw.level - 1];
+    const dmg = cfg.dmg * UP_DMG[tw.level - 1];
 
-function moveHero(dx, dy) {
-  const nc = hero.x + dx, nr = hero.y + dy;
-  if (!isWalkable(nc, nr)) return;
-  hero.x = nc; hero.y = nr;
-  drawField();
-  // 濃い草でエンカウント判定
-  if (MAP[nr][nc] === 1) {
-    stepsSinceBattle++;
-    const chance = Math.min(0.35 + stepsSinceBattle * 0.08, 0.85);
-    if (Math.random() < chance) {
-      stepsSinceBattle = 0;
-      startBattle();
+    // 射程内で最も先行している敵を狙う
+    let target = null, best = -1;
+    for (const e of state.enemies) {
+      const d = Math.hypot(e.x - tw.x, e.y - tw.y);
+      if (d <= range && e.traveled > best) { best = e.traveled; target = e; }
+    }
+    tw.target = target;
+    if (target && tw.cool <= 0) {
+      tw.cool = cd;
+      fire(tw, target, cfg, dmg, now);
     }
   }
-}
 
-/* ---------- HUD ---------- */
-function updateHUD() {
-  $('hud-lv').textContent = hero.lv;
-  $('hud-hp').textContent = hero.hp;
-  $('hud-maxhp').textContent = hero.maxhp;
-  $('hud-exp').textContent = hero.exp;
-}
-
-/* ---------- 数学問題生成（レベルに応じて難化） ---------- */
-function makeQuiz(level) {
-  let q, a;
-  const r = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-  if (level <= 2) {                       // たし算・ひき算
-    const x = r(1, 9 + level * 2), y = r(1, 9 + level * 2);
-    if (Math.random() < 0.5) { q = `${x} + ${y}`; a = x + y; }
-    else { const [big, sm] = x >= y ? [x, y] : [y, x]; q = `${big} − ${sm}`; a = big - sm; }
-  } else if (level <= 4) {                 // かけ算
-    const x = r(2, 9), y = r(2, 9);
-    q = `${x} × ${y}`; a = x * y;
-  } else if (level <= 6) {                 // わり算（割り切れる）/ 複合
-    if (Math.random() < 0.5) {
-      const y = r(2, 9), a2 = r(2, 9); q = `${y * a2} ÷ ${y}`; a = a2;
-    } else {
-      const x = r(2, 12), y = r(2, 9), z = r(1, 9);
-      q = `${x} × ${y} + ${z}`; a = x * y + z;
-    }
-  } else if (level <= 9) {                 // かんたんな方程式・累乗
-    if (Math.random() < 0.5) {
-      const x = r(2, 12), b = r(1, 20), res = x + b;
-      q = `x + ${b} = ${res} のとき x = ?`; a = x;
-    } else {
-      const base = r(2, 9); q = `${base}²`; a = base * base;
-    }
-  } else {                                 // 上級：2乗・連立っぽい
-    if (Math.random() < 0.5) {
-      const x = r(3, 12), m = r(2, 6), b = r(1, 15);
-      q = `${m}x + ${b} = ${m * x + b} のとき x = ?`; a = x;
-    } else {
-      const x = r(11, 19), y = r(11, 19); q = `${x} × ${y}`; a = x * y;
-    }
+  /* --- ビーム/パーティクル寿命 --- */
+  for (const b of state.beams) b.life -= dt;
+  state.beams = state.beams.filter((b) => b.life > 0);
+  for (const p of state.particles) {
+    p.life -= dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.92; p.vy *= 0.92;
   }
-  return { q, a };
-}
+  state.particles = state.particles.filter((p) => p.life > 0);
 
-/* ---------- バトル ---------- */
-const battleCv = $('battle-canvas');
-const bctx = battleCv.getContext('2d');
-bctx.imageSmoothingEnabled = false;
-
-function pickEnemy() {
-  // レベルが上がるほど強い敵が出やすい
-  const maxTier = Math.min(Math.floor((hero.lv - 1) / 2), ENEMIES.length - 1);
-  const tier = Math.random() < 0.6 ? maxTier : r0(0, maxTier);
-  return ENEMIES.find(e => e.tier === tier) || ENEMIES[0];
-}
-function r0(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
-
-function drawBattleScene() {
-  // 背景：洞窟風グラデ
-  const g = bctx.createLinearGradient(0, 0, 0, 200);
-  g.addColorStop(0, '#1a1030'); g.addColorStop(1, '#06060f');
-  bctx.fillStyle = g; bctx.fillRect(0, 0, 480, 200);
-  // 地面
-  bctx.fillStyle = '#241a40'; bctx.fillRect(0, 150, 480, 50);
-  bctx.fillStyle = '#2e2250';
-  for (let i = 0; i < 480; i += 40) bctx.fillRect(i, 150, 20, 4);
-
-  // 敵（大きく描画）
-  const scale = 6;
-  const w = currentEnemy.spr[0].length * scale;
-  drawSprite(bctx, currentEnemy.spr, currentEnemy.pal,
-    240 - w / 2, 30, scale);
-}
-
-function startBattle() {
-  currentEnemy = pickEnemy();
-  enemyHpLeft = currentEnemy.hp;
-  showScreen('battle');
-  drawBattleScene();
-  $('b-enemy-name').textContent = currentEnemy.name;
-  $('b-lv').textContent = hero.lv;
-  $('b-hp').textContent = hero.hp;
-  $('b-maxhp').textContent = hero.maxhp;
-  updateBattleBars();
-  setMessage(`${currentEnemy.name}が あらわれた！`);
-  setTimeout(nextQuestion, 900);
-}
-
-function updateBattleBars() {
-  $('enemy-hp-fill').style.width = (enemyHpLeft / currentEnemy.hp * 100) + '%';
-  $('hero-hp-fill').style.width = (hero.hp / hero.maxhp * 100) + '%';
-  $('b-hp').textContent = hero.hp;
-}
-
-function setMessage(msg) { $('battle-message').textContent = msg; }
-
-function nextQuestion() {
-  currentQuiz = makeQuiz(hero.lv);
-  $('quiz-question').textContent = currentQuiz.q + ' = ?';
-  $('quiz-area').classList.add('active');
-  const input = $('quiz-answer');
-  input.value = '';
-  input.disabled = false;
-  $('quiz-submit').disabled = false;
-  if (!isTouch) input.focus();   // タッチ端末ではキーボードを開かない
-  setMessage('問題を といて こうげき！');
-  startQuizTimer();
-}
-
-function startQuizTimer() {
-  clearInterval(quizTimer);
-  // 難しい敵ほど制限時間は長め
-  timeLeft = 12 + currentEnemy.tier * 4;
-  const total = timeLeft;
-  const bar = $('quiz-timer');
-  bar.style.setProperty('--t', '100%');
-  quizTimer = setInterval(() => {
-    timeLeft -= 0.1;
-    bar.style.setProperty('--t', Math.max(0, timeLeft / total * 100) + '%');
-    if (timeLeft <= 0) {
-      clearInterval(quizTimer);
-      onWrong(true);
-    }
-  }, 100);
-}
-
-function submitAnswer() {
-  if (!currentQuiz) return;
-  const val = $('quiz-answer').value.trim();
-  if (val === '') return;
-  clearInterval(quizTimer);
-  const ans = Number(val);
-  if (ans === currentQuiz.a) onCorrect();
-  else onWrong(false);
-}
-
-function onCorrect() {
-  enemyHpLeft--;
-  setMessage(`せいかい！ ${currentEnemy.name}に こうげき！`);
-  // 敵を揺らす
-  battleCv.classList.remove('shake'); void battleCv.offsetWidth;
-  battleCv.classList.add('shake');
-  updateBattleBars();
-  $('quiz-area').classList.remove('active');
-
-  if (enemyHpLeft <= 0) {
-    setTimeout(winBattle, 700);
-  } else {
-    setMessage(`せいかい！ のこり ${enemyHpLeft}回 で たおせる！`);
-    setTimeout(nextQuestion, 800);
-  }
-}
-
-function onWrong(timeout) {
-  const dmg = 3 + currentEnemy.tier * 2 + Math.floor(Math.random() * 3);
-  hero.hp = Math.max(0, hero.hp - dmg);
-  updateBattleBars();
-  $('quiz-area').classList.remove('active');
-  const correct = currentQuiz.a;
-  setMessage(timeout
-    ? `じかんぎれ！ ${dmg}の ダメージ…（こたえは ${correct}）`
-    : `ざんねん！ ${dmg}の ダメージ…（こたえは ${correct}）`);
-  // 画面フラッシュ
-  screens.battle.classList.remove('flash'); void screens.battle.offsetWidth;
-  screens.battle.classList.add('flash');
-
-  if (hero.hp <= 0) {
-    setTimeout(gameOver, 900);
-  } else {
-    setTimeout(nextQuestion, 1100);
-  }
-}
-
-function winBattle() {
-  $('quiz-area').classList.remove('active');
-  hero.exp += currentEnemy.exp;
-  setMessage(`${currentEnemy.name}を たおした！ EXP +${currentEnemy.exp}`);
-
-  // レベルアップ判定
-  let leveled = false;
-  while (hero.exp >= hero.next) {
-    hero.exp -= hero.next;
-    hero.lv++;
-    hero.maxhp += 6;
-    hero.hp = hero.maxhp;          // 全回復
-    hero.next = Math.floor(hero.next * 1.5);
-    leveled = true;
-  }
-  updateHUD();
-
-  if (leveled) {
-    setTimeout(() => {
-      setMessage(`レベルが あがった！ Lv${hero.lv}！ HPが かいふくした！`);
-      setTimeout(endBattle, 1600);
-    }, 1100);
-  } else {
-    // 少しHP回復のごほうび
-    hero.hp = Math.min(hero.maxhp, hero.hp + 2);
-    updateHUD();
-    setTimeout(endBattle, 1300);
-  }
-}
-
-function endBattle() {
-  currentQuiz = null;
-  showScreen('field');
-  updateHUD();
-  drawField();
-}
-
-/* ---------- ゲームオーバー ---------- */
-function gameOver() {
-  showScreen('gameover');
-  $('gameover-text').textContent =
-    `AIは ちからつきた…  (Lv${hero.lv} まで せいちょうした)`;
-}
-
-function resetGame() {
-  hero.lv = 1; hero.hp = 20; hero.maxhp = 20;
-  hero.exp = 0; hero.next = 10; hero.x = 5; hero.y = 4;
-  stepsSinceBattle = 0;
   updateHUD();
 }
 
-/* ---------- 入力 ---------- */
-document.addEventListener('keydown', e => {
-  // フィールド移動
-  if (screens.field.classList.contains('active')) {
-    const map = {
-      ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
-      ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
-      ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
-      ArrowRight: [1, 0], d: [1, 0], D: [1, 0],
-    };
-    if (map[e.key]) { e.preventDefault(); moveHero(map[e.key][0], map[e.key][1]); }
+/* タワー発射（ヒットスキャン＋ビーム表示） */
+function fire(tw, target, cfg, dmg, now) {
+  state.beams.push({ x1: tw.x, y1: tw.y, x2: target.x, y2: target.y, color: cfg.color, life: 0.09 });
+  applyDamage(target, dmg);
+  burst(target.x, target.y, cfg.color, 4);
+  if (cfg.slow > 0) target.slowUntil = now + cfg.slow + tw.level * 0.15;
+  if (cfg.splash > 0) {
+    for (const e of state.enemies) {
+      if (e === target) continue;
+      const d = Math.hypot(e.x - target.x, e.y - target.y);
+      if (d <= cfg.splash) applyDamage(e, dmg * 0.6);
+    }
+    ring(target.x, target.y, cfg.splash, cfg.color);
   }
-  // バトルで Enter 送信
-  if (screens.battle.classList.contains('active') && e.key === 'Enter') {
-    e.preventDefault(); submitAnswer();
+}
+
+function applyDamage(e, dmg) {
+  e.hp -= dmg;
+  e.hitFlash = 0.08;
+  if (e.hp <= 0 && !e.dead) {
+    e.dead = true;
+    state.money += e.reward;
+    state.score += e.reward;
+    state.killed++;
+    floatText(e.x, e.y, "+" + e.reward, "#36f58a");
+    burst(e.x, e.y, e.color, 14);
   }
-  // タイトルで Enter スタート
-  if (screens.title.classList.contains('active') && e.key === 'Enter') {
-    startGame();
+}
+
+function finishGame() {
+  $("ov-title").textContent = state.won ? "🏆 完全防衛 成功！" : "💥 コア陥落…防衛失敗";
+  $("ov-sub").textContent = state.won
+    ? "全" + WAVES.length + "ウェーブを撃退した！さすがAI。"
+    : "WAVE " + state.wave + " でコアが破壊された。";
+  $("ov-stats").innerHTML =
+    "撃破した脅威: <b>" + state.killed + "</b> 体<br>" +
+    "到達ウェーブ: <b>" + state.wave + " / " + WAVES.length + "</b><br>" +
+    "スコア: <b>" + state.score + "</b>";
+  $("overlay").classList.add("show");
+  refreshWaveButton();
+}
+
+/* ============================================================
+   エフェクト
+   ============================================================ */
+function burst(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 30 + Math.random() * 90;
+    state.particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: 0.3 + Math.random() * 0.3, color, size: 1 + Math.random() * 2.5,
+    });
   }
+}
+function ring(x, y, r, color) {
+  state.beams.push({ ring: true, x, y, r, color, life: 0.2 });
+}
+function floatText(x, y, text, color) {
+  state.particles.push({ x, y, vx: 0, vy: -28, life: 0.9, color, text, size: 13 });
+}
+
+/* ============================================================
+   描画
+   ============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  // 背景
+  ctx.fillStyle = "#070b14";
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(40,80,120,0.22)";
+  ctx.lineWidth = 1;
+  for (let c = 0; c <= COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c * TILE, 0); ctx.lineTo(c * TILE, H); ctx.stroke();
+  }
+  for (let r = 0; r <= ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r * TILE); ctx.lineTo(W, r * TILE); ctx.stroke();
+  }
+
+  drawPath();
+  if (state.selectedBuild) drawBuildHints();
+  drawCore();
+
+  for (const tw of state.towers) drawTower(tw);
+
+  // 選択中タワーの射程
+  if (state.selectedTower) {
+    const cfg = TOWER_TYPES[state.selectedTower.type];
+    const range = cfg.range * UP_RANGE[state.selectedTower.level - 1];
+    ctx.beginPath();
+    ctx.arc(state.selectedTower.x, state.selectedTower.y, range, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(80,200,255,0.08)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(80,200,255,0.5)";
+    ctx.setLineDash([6, 5]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  for (const e of state.enemies) drawEnemy(e);
+
+  // ビーム
+  for (const b of state.beams) {
+    if (b.ring) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r * (1.2 - b.life), 0, Math.PI * 2);
+      ctx.strokeStyle = b.color; ctx.globalAlpha = b.life * 4; ctx.lineWidth = 3;
+      ctx.stroke(); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2);
+      ctx.strokeStyle = b.color; ctx.globalAlpha = Math.min(1, b.life * 11);
+      ctx.lineWidth = 3; ctx.shadowColor = b.color; ctx.shadowBlur = 8;
+      ctx.stroke();
+      ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineWidth = 1;
+    }
+  }
+
+  // パーティクル / フロートテキスト
+  for (const p of state.particles) {
+    if (p.text) {
+      ctx.globalAlpha = Math.min(1, p.life * 1.5);
+      ctx.fillStyle = p.color;
+      ctx.font = "bold " + p.size + "px 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.text, p.x, p.y);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.globalAlpha = Math.min(1, p.life * 2);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function drawPath() {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(ENTRY.x, ENTRY.y);
+  for (const wp of waypoints) ctx.lineTo(wp.x, wp.y);
+  ctx.strokeStyle = "rgba(0,180,255,0.12)";
+  ctx.lineWidth = 46; ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(ENTRY.x, ENTRY.y);
+  for (const wp of waypoints) ctx.lineTo(wp.x, wp.y);
+  ctx.strokeStyle = "#13314a";
+  ctx.lineWidth = 30; ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(ENTRY.x, ENTRY.y);
+  for (const wp of waypoints) ctx.lineTo(wp.x, wp.y);
+  ctx.strokeStyle = "rgba(64,224,255,0.7)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 14]);
+  ctx.lineDashOffset = -(performance.now() / 28) % 24;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+}
+
+function drawBuildHints() {
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (pathCells.has(ckey(c, r))) continue;
+      if (towerAt(c, r)) continue;
+      ctx.fillStyle = "rgba(54,245,138,0.07)";
+      ctx.fillRect(c * TILE + 3, r * TILE + 3, TILE - 6, TILE - 6);
+      ctx.strokeStyle = "rgba(54,245,138,0.25)";
+      ctx.strokeRect(c * TILE + 3, r * TILE + 3, TILE - 6, TILE - 6);
+    }
+  }
+}
+
+function drawCore() {
+  const x = corePos.x, y = corePos.y;
+  const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 300);
+  ctx.save();
+  ctx.shadowColor = "#2bd9ff"; ctx.shadowBlur = 20 * pulse;
+  ctx.fillStyle = "#0b2c3d";
+  ctx.fillRect(x - 22, y - 22, 44, 44);
+  ctx.restore();
+  ctx.strokeStyle = "#2bd9ff"; ctx.lineWidth = 2;
+  ctx.strokeRect(x - 22, y - 22, 44, 44);
+  ctx.fillStyle = "#2bd9ff";
+  ctx.globalAlpha = 0.4 + 0.6 * pulse;
+  ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#eaffff";
+  ctx.font = "bold 9px monospace"; ctx.textAlign = "center";
+  ctx.fillText("CORE", x, y + 33);
+  const w = 44, hp = state.coreHP / state.coreMaxHP;
+  ctx.fillStyle = "#22303a"; ctx.fillRect(x - w / 2, y - 33, w, 5);
+  ctx.fillStyle = hp > 0.5 ? "#36f58a" : hp > 0.25 ? "#ffd54f" : "#ff4d4d";
+  ctx.fillRect(x - w / 2, y - 33, w * Math.max(0, hp), 5);
+}
+
+function drawTower(tw) {
+  const cfg = TOWER_TYPES[tw.type];
+  const x = tw.x, y = tw.y;
+  ctx.fillStyle = "#10202e";
+  ctx.fillRect(x - 22, y - 22, 44, 44);
+  ctx.strokeStyle = tw === state.selectedTower ? "#ffffff" : cfg.color;
+  ctx.lineWidth = tw === state.selectedTower ? 3 : 2;
+  ctx.strokeRect(x - 22, y - 22, 44, 44);
+  ctx.lineWidth = 1;
+  // 砲身は最寄り敵へ向く
+  let ang = -Math.PI / 2;
+  if (tw.target) ang = Math.atan2(tw.target.y - y, tw.target.x - x);
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(ang);
+  ctx.fillStyle = cfg.color;
+  ctx.shadowColor = cfg.color; ctx.shadowBlur = 8;
+  ctx.fillRect(0, -4, 20, 8);
+  ctx.restore();
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2);
+  ctx.fillStyle = cfg.color; ctx.fill();
+  ctx.fillStyle = "#03121c";
+  ctx.font = "bold 9px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(cfg.short, x, y);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#ffd54f"; ctx.font = "8px sans-serif";
+  ctx.fillText("★".repeat(tw.level), x, y + 20);
+}
+
+function drawEnemy(e) {
+  const x = e.x, y = e.y;
+  ctx.save();
+  if (e.hitFlash > 0) { ctx.shadowColor = "#fff"; ctx.shadowBlur = 12; }
+  ctx.fillStyle = e.hitFlash > 0 ? "#ffffff" : e.color;
+  if (e.type === "trojan") {
+    ctx.fillRect(x - e.r, y - e.r, e.r * 2, e.r * 2);
+  } else if (e.type === "ransom") {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + performance.now() / 600;
+      const px = x + Math.cos(a) * e.r, py = y + Math.sin(a) * e.r;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  } else if (e.type === "worm") {
+    ctx.beginPath(); ctx.ellipse(x, y, e.r + 3, e.r - 2, 0, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(x, y, e.r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  if (e.slowUntil > performance.now() / 1000) {
+    ctx.strokeStyle = "#c77dff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, e.r + 4, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+  }
+  const w = e.r * 2.2, hp = e.hp / e.maxhp;
+  ctx.fillStyle = "#220";
+  ctx.fillRect(x - w / 2, y - e.r - 8, w, 3);
+  ctx.fillStyle = hp > 0.5 ? "#36f58a" : hp > 0.25 ? "#ffd54f" : "#ff4d4d";
+  ctx.fillRect(x - w / 2, y - e.r - 8, w * Math.max(0, hp), 3);
+}
+
+/* ============================================================
+   入力（建築・選択）
+   ============================================================ */
+function cellFromEvent(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = canvas.width / rect.width;
+  const sy = canvas.height / rect.height;
+  const px = (ev.clientX - rect.left) * sx;
+  const py = (ev.clientY - rect.top) * sy;
+  return { c: Math.floor(px / TILE), r: Math.floor(py / TILE), px, py };
+}
+function towerAt(c, r) {
+  return state.towers.find((t) => t.cell.c === c && t.cell.r === r) || null;
+}
+
+canvas.addEventListener("click", (ev) => {
+  if (state.over || state.won) return;
+  const { c, r } = cellFromEvent(ev);
+  if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+  const existing = towerAt(c, r);
+
+  if (state.selectedBuild && !existing && !pathCells.has(ckey(c, r))) {
+    const cfg = TOWER_TYPES[state.selectedBuild];
+    if (state.money >= cfg.cost) {
+      state.money -= cfg.cost;
+      state.towers.push({
+        type: state.selectedBuild,
+        cell: { c, r },
+        x: c * TILE + TILE / 2,
+        y: r * TILE + TILE / 2,
+        level: 1, cool: 0, target: null,
+        invested: cfg.cost,
+      });
+      burst(c * TILE + TILE / 2, r * TILE + TILE / 2, cfg.color, 10);
+      updateHUD();
+    } else {
+      floatText(c * TILE + TILE / 2, r * TILE + TILE / 2, "資金不足!", "#ff4d4d");
+    }
+    return;
+  }
+
+  state.selectedTower = existing;
+  state.selectedBuild = null;
+  syncShopButtons();
+  showTowerPanel();
 });
 
-// スマホ用 十字キー（タッチ／クリック両対応）
-const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-$('dpad').querySelectorAll('.dbtn').forEach(btn => {
-  const handler = e => {
-    e.preventDefault();
-    if (!screens.field.classList.contains('active')) return;
-    const d = DIRS[btn.dataset.dir];
-    if (d) moveHero(d[0], d[1]);
-  };
-  // touchstart を優先（反応を速く）。無い環境では click。
-  btn.addEventListener('touchstart', handler, { passive: false });
-  btn.addEventListener('click', handler);
-});
-
-// スマホ用 数字パッド
-const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-if (isTouch) {
-  // ネイティブキーボードが勝手に開かないよう読み取り専用にし、パッドで入力
-  $('quiz-answer').readOnly = true;
+/* ============================================================
+   ショップ / パネル UI
+   ============================================================ */
+function buildShop() {
+  const shop = $("shop");
+  shop.innerHTML = "";
+  for (const key of BUILD_ORDER) {
+    const cfg = TOWER_TYPES[key];
+    const b = document.createElement("button");
+    b.className = "shop-btn";
+    b.dataset.type = key;
+    b.innerHTML =
+      '<span class="sb-icon" style="color:' + cfg.color + ';border-color:' + cfg.color + '">' + cfg.short + "</span>" +
+      '<span class="sb-info"><b>' + cfg.name + "</b>" +
+      "<small>" + cfg.desc + "</small></span>" +
+      '<span class="sb-cost">💰' + cfg.cost + "</span>";
+    b.addEventListener("click", () => {
+      state.selectedBuild = state.selectedBuild === key ? null : key;
+      state.selectedTower = null;
+      showTowerPanel();
+      syncShopButtons();
+    });
+    shop.appendChild(b);
+  }
 }
-$('keypad').querySelectorAll('.key').forEach(btn => {
-  btn.addEventListener('click', e => {
-    e.preventDefault();
-    const input = $('quiz-answer');
-    if (input.disabled) return;
-    const k = btn.dataset.k;
-    if (k === 'del') input.value = input.value.slice(0, -1);
-    else if (k === 'clear') input.value = '';
-    else if (input.value.length < 7) input.value += k;
+
+function syncShopButtons() {
+  document.querySelectorAll(".shop-btn").forEach((b) => {
+    const cfg = TOWER_TYPES[b.dataset.type];
+    b.classList.toggle("selected", state.selectedBuild === b.dataset.type);
+    b.classList.toggle("nomoney", state.money < cfg.cost);
   });
-});
-
-$('quiz-submit').addEventListener('click', submitAnswer);
-$('quiz-answer').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); submitAnswer(); }
-});
-
-/* ---------- 開始 / タイトル描画 ---------- */
-function startGame() {
-  resetGame();
-  showScreen('field');
-  drawField();
-  fieldCv.focus();
 }
 
-$('start-btn').addEventListener('click', startGame);
-$('retry-btn').addEventListener('click', startGame);
+function upgradeCost(tw) {
+  const cfg = TOWER_TYPES[tw.type];
+  return Math.round(cfg.cost * (0.8 + tw.level * 0.7));
+}
 
-// タイトルのAIをドット絵で表示
-(function drawTitleHero() {
-  const tc = $('title-canvas');
-  const tctx = tc.getContext('2d');
-  tctx.imageSmoothingEnabled = false;
-  drawSprite(tctx, SPR_AI, PAL_AI, 5, 5, 4);
-})();
+function showTowerPanel() {
+  const panel = $("tower-panel");
+  const tw = state.selectedTower;
+  if (!tw) { panel.classList.remove("show"); return; }
+  panel.classList.add("show");
+  const cfg = TOWER_TYPES[tw.type];
+  const dmg = Math.round(cfg.dmg * UP_DMG[tw.level - 1]);
+  const range = Math.round(cfg.range * UP_RANGE[tw.level - 1]);
+  const rate = (1 / (cfg.cd * UP_CD[tw.level - 1])).toFixed(1);
+  $("tp-name").textContent = cfg.name + " ★" + tw.level;
+  $("tp-stats").innerHTML =
+    "威力 <b>" + dmg + "</b>／射程 <b>" + range + "</b>／連射 <b>" + rate + "</b>発/秒" +
+    (cfg.splash ? "／範囲攻撃" : "") + (cfg.slow ? "／減速" : "");
+  const upBtn = $("tp-upgrade");
+  if (tw.level >= MAX_LEVEL) {
+    upBtn.textContent = "最大レベル";
+    upBtn.disabled = true;
+  } else {
+    const cost = upgradeCost(tw);
+    upBtn.textContent = "⬆ 強化 (💰" + cost + ")";
+    upBtn.disabled = state.money < cost;
+  }
+  const sell = Math.round(tw.invested * 0.6);
+  $("tp-sell").textContent = "売却 (+💰" + sell + ")";
+}
 
-updateHUD();
+function doUpgrade() {
+  const tw = state.selectedTower;
+  if (!tw || tw.level >= MAX_LEVEL) return;
+  const cost = upgradeCost(tw);
+  if (state.money < cost) return;
+  state.money -= cost;
+  tw.invested += cost;
+  tw.level++;
+  burst(tw.x, tw.y, "#ffd54f", 14);
+  updateHUD();
+  showTowerPanel();
+}
+
+function doSell() {
+  const tw = state.selectedTower;
+  if (!tw) return;
+  const refund = Math.round(tw.invested * 0.6);
+  state.money += refund;
+  floatText(tw.x, tw.y, "+" + refund, "#ffd54f");
+  state.towers = state.towers.filter((t) => t !== tw);
+  state.selectedTower = null;
+  showTowerPanel();
+  updateHUD();
+}
+
+/* ============================================================
+   HUD / 画面切替
+   ============================================================ */
+function updateHUD() {
+  $("hud-money").textContent = state.money;
+  $("hud-core").textContent = state.coreHP;
+  $("hud-wave").textContent = state.wave + " / " + WAVES.length;
+  $("hud-score").textContent = state.score;
+  syncShopButtons();
+  if (state.selectedTower) {
+    const tw = state.selectedTower;
+    const upBtn = $("tp-upgrade");
+    if (tw.level < MAX_LEVEL) upBtn.disabled = state.money < upgradeCost(tw);
+  }
+}
+
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  $(name + "-screen").classList.add("active");
+}
+
+/* ============================================================
+   配線
+   ============================================================ */
+let loopStarted = false;
+function init() {
+  buildShop();
+  $("start-btn").addEventListener("click", () => {
+    startGame();
+    if (!loopStarted) { loopStarted = true; lastTime = performance.now(); requestAnimationFrame(loop); }
+  });
+  $("wave-btn").addEventListener("click", startNextWave);
+  $("tp-upgrade").addEventListener("click", doUpgrade);
+  $("tp-sell").addEventListener("click", doSell);
+  $("speed-btn").addEventListener("click", () => {
+    state.speed = state.speed === 1 ? 2 : state.speed === 2 ? 3 : 1;
+    $("speed-btn").textContent = state.speed === 1 ? "▶ 等速" : "▶▶ " + state.speed + "倍速";
+  });
+  $("retry-btn").addEventListener("click", () => {
+    $("overlay").classList.remove("show");
+    startGame();
+  });
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    state.selectedBuild = null; state.selectedTower = null;
+    syncShopButtons(); showTowerPanel();
+  });
+}
+init();
